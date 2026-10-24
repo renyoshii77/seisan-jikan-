@@ -1,0 +1,30 @@
+{
+  "name": "生産時間・残量計算",
+  "short_name": "生産時間計算",
+  "description": "包装課の生産予定時間・終了時刻予測・受入質量残量の計算",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#eef1f0",
+  "theme_color": "#0f6a7d",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

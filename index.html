@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f6a7d">
+<meta name="description" content="包装課の生産予定時間・終了時刻予測・受入質量残量の計算">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="生産時間計算">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>生産時間・残量計算</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: 包装ラインの「記録用紙」— 青＝入力欄、琥珀＝計算結果。上にタブ、各画面は 入力 → 結果カード の順 */
+:root {
+  --bg: #eef1f0; --surface: #ffffff; --ink: #17262b; --muted: #586a70; --line: #cfd9db;
+  --accent: #0f6a7d; --accent-ink: #ffffff; --accent-soft: #dcecef;
+  --in-bg: #e8f1fb; --in-line: #7ea6cc; --in-ink: #0f3557; --in-focus: #1f6fb8;
+  --out-bg: #fbf3e2; --out-line: #e0c07a; --out-ink: #5a3d06;
+  --ok: #2c7a4b; --ok-bg: #e4f3ea; --warn: #9a5b00; --warn-bg: #fff1d6; --err: #b42318; --err-bg: #fde8e6;
+  --smp: #6b4fa0; --smp-bg: #efe9f8; --shadow: 0 1px 2px rgba(20,40,45,.08);
+  --f-ui: "BIZ UDPGothic", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  --f-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f171a; --surface: #162227; --ink: #e3ecee; --muted: #93a6ac; --line: #2b3c42;
+  --accent: #4fb3c8; --accent-ink: #06242b; --accent-soft: #173840;
+  --in-bg: #12283b; --in-line: #3d6d96; --in-ink: #cfe4fa; --in-focus: #6fb0ec;
+  --out-bg: #2a2214; --out-line: #6e5626; --out-ink: #f3d9a1;
+  --ok: #6fd19a; --ok-bg: #12301f; --warn: #f0b45a; --warn-bg: #33240b; --err: #ff8a7f; --err-bg: #3a1512;
+  --smp: #c3a8f0; --smp-bg: #2a2140; --shadow: none; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f171a; --surface: #162227; --ink: #e3ecee; --muted: #93a6ac; --line: #2b3c42;
+  --accent: #4fb3c8; --accent-ink: #06242b; --accent-soft: #173840;
+  --in-bg: #12283b; --in-line: #3d6d96; --in-ink: #cfe4fa; --in-focus: #6fb0ec;
+  --out-bg: #2a2214; --out-line: #6e5626; --out-ink: #f3d9a1;
+  --ok: #6fd19a; --ok-bg: #12301f; --warn: #f0b45a; --warn-bg: #33240b; --err: #ff8a7f; --err-bg: #3a1512;
+  --smp: #c3a8f0; --smp-bg: #2a2140; --shadow: none; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-ui); font-size: 15px; line-height: 1.6; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+.wrap { max-width: 1040px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.3; }
+button { font: inherit; }
+:focus-visible { outline: 3px solid var(--in-focus); outline-offset: 2px; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; }
+
+/* header */
+.top { background: var(--surface); border-bottom: 1px solid var(--line); }
+.top .wrap { padding-block: 14px 10px; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; justify-content: space-between; }
+.top h1 { font-size: 20px; letter-spacing: .02em; }
+.top h1 small { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 8px; letter-spacing: .04em; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--muted); align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 6px; }
+.chip i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+.chip .in { background: var(--in-bg); border: 1.5px solid var(--in-line); }
+.chip .out { background: var(--out-bg); border: 1.5px solid var(--out-line); }
+.store { font-size: 12px; color: var(--muted); }
+.store b { color: var(--ink); font-weight: 700; }
+
+/* tabs */
+.tabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+.tabs .wrap { display: flex; gap: 4px; overflow-x: auto; }
+.tab { flex: 1 1 0; min-width: 0; padding: 12px 8px 10px; border: 0; background: none; color: var(--muted); font-weight: 700; font-size: 15px; border-bottom: 3px solid transparent; cursor: pointer; white-space: nowrap; }
+.tab .n { font-family: var(--f-num); margin-right: 6px; }
+.tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tab:hover { color: var(--ink); }
+
+main.wrap { padding-block: 18px 48px; display: grid; gap: 18px; }
+.panel { display: grid; gap: 14px; }
+.phead { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.phead h2 { font-size: 18px; }
+.phead .src { font-size: 12px; color: var(--muted); font-weight: 400; display: block; margin-top: 2px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+.btn { min-height: 44px; padding: 8px 14px; border-radius: 8px; border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.smp { color: var(--smp); border-color: var(--smp); border-style: dashed; }
+.btn.danger { color: var(--err); }
+.btn.sm { min-height: 36px; padding: 4px 10px; font-size: 13px; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); min-height: 44px; cursor: pointer; }
+.toggle input { width: 20px; height: 20px; accent-color: var(--accent); }
+
+.sample-flag { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-radius: 8px; color: var(--smp); background: repeating-linear-gradient(135deg, var(--smp-bg) 0 10px, var(--surface) 10px 20px); border: 1.5px dashed var(--smp); font-size: 13px; font-weight: 700; }
+
+/* inputs */
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; box-shadow: var(--shadow); }
+.box > h3 { font-size: 13px; color: var(--muted); letter-spacing: .08em; margin-bottom: 10px; font-weight: 700; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px 14px; }
+.field { display: grid; gap: 4px; min-width: 0; }
+.field .lbl { font-size: 13px; font-weight: 700; display: flex; justify-content: space-between; gap: 8px; }
+.field .lbl em { font-style: normal; font-weight: 400; color: var(--muted); font-size: 11px; }
+.ctl { display: flex; align-items: stretch; background: var(--in-bg); border: 1.5px solid var(--in-line); border-radius: 8px; overflow: hidden; }
+.ctl:focus-within { border-color: var(--in-focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--in-focus) 25%, transparent); }
+.ctl input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--in-ink); font-family: var(--f-num); font-size: 18px; padding: 10px 10px; min-height: 48px; outline: none; }
+.ctl input.txt { font-family: var(--f-ui); font-size: 16px; }
+.ctl .unit { display: flex; align-items: center; padding: 0 10px; font-size: 13px; color: var(--in-ink); opacity: .8; white-space: nowrap; border-left: 1px solid color-mix(in srgb, var(--in-line) 45%, transparent); }
+.ctl.bad { border-color: var(--err); background: var(--err-bg); }
+.err { font-size: 12px; color: var(--err); min-height: 0; font-weight: 700; }
+.err:empty { display: none; }
+.hint { font-size: 12px; color: var(--muted); }
+.linkbtn { background: none; border: 0; color: var(--accent); font-size: 12px; font-weight: 700; cursor: pointer; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
+
+/* results */
+.results { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.res { background: var(--out-bg); border: 1.5px solid var(--out-line); border-radius: 10px; padding: 10px 12px; color: var(--out-ink); min-width: 0; display: grid; gap: 2px; align-content: start; }
+.res .k { font-size: 12px; font-weight: 700; opacity: .85; }
+.res .v { font-family: var(--f-num); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.res .v small { font-family: var(--f-ui); font-size: 13px; font-weight: 700; margin-left: 4px; }
+.res .d { font-size: 12px; font-family: var(--f-num); opacity: .8; overflow-wrap: anywhere; }
+.res.hero { grid-column: 1 / -1; padding: 14px 16px; }
+.res.hero .v { font-size: 30px; }
+.res.muted .v { font-family: var(--f-ui); font-size: 16px; opacity: .7; }
+.status { border-radius: 10px; padding: 12px 14px; font-weight: 700; font-size: 14px; display: grid; gap: 2px; grid-column: 1 / -1; }
+.status small { font-weight: 400; font-size: 13px; }
+.status.ok { background: var(--ok-bg); color: var(--ok); border: 1.5px solid var(--ok); }
+.status.warn { background: var(--warn-bg); color: var(--warn); border: 1.5px solid var(--warn); }
+.status.err { background: var(--err-bg); color: var(--err); border: 1.5px solid var(--err); }
+.status.idle { background: var(--surface); color: var(--muted); border: 1.5px dashed var(--line); }
+.tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn); margin-left: 6px; vertical-align: middle; font-family: var(--f-ui); }
+.tag.now { background: var(--ok-bg); color: var(--ok); border-color: var(--ok); }
+
+/* schedule rows */
+.srows { display: grid; gap: 10px; }
+.srow { display: grid; grid-template-columns: 40px minmax(0, 1.2fr) minmax(0, .8fr) minmax(0, 2.4fr) 40px; gap: 8px; align-items: start; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.srow.skip { background: transparent; border-style: dashed; }
+.srow.skip .souts { opacity: .6; }
+.sno { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-family: var(--f-num); font-weight: 600; margin-top: 22px; }
+.srow .field .lbl { font-size: 12px; }
+.souts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 22px; }
+.souts .res { padding: 6px 8px; }
+.souts .res .v { font-size: 16px; }
+.souts .note { grid-column: 1 / -1; font-size: 13px; color: var(--muted); padding: 12px 8px; border: 1.5px dashed var(--line); border-radius: 8px; }
+.souts .note.e { color: var(--err); border-color: var(--err); }
+.delrow { margin-top: 22px; width: 36px; height: 44px; border-radius: 8px; border: 1px solid var(--line); background: none; color: var(--muted); cursor: pointer; font-size: 18px; }
+.delrow:hover { color: var(--err); border-color: var(--err); }
+.shead { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
+
+@media (max-width: 760px) {
+  .srow { grid-template-columns: 36px minmax(0, 1.3fr) minmax(0, 1fr) 40px; }
+  .srow .sno { grid-row: 1; margin-top: 22px; }
+  .srow .delrow { grid-column: 4; grid-row: 1; }
+  .srow .souts { grid-column: 1 / -1; margin-top: 0; }
+  .top h1 small { display: block; margin: 2px 0 0; }
+}
+@media (max-width: 420px) {
+  .souts .res .v { font-size: 14px; }
+  .res.hero .v { font-size: 26px; }
+  .tab { font-size: 14px; padding-inline: 4px; }
+  .tab .n { margin-right: 3px; }
+}
+
+details.notes { font-size: 13px; color: var(--muted); }
+details.notes summary { cursor: pointer; font-weight: 700; color: var(--ink); min-height: 32px; }
+details.notes ul { margin: 6px 0 0; padding-left: 1.2em; }
+
+/* modal & toast */
+.modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: color-mix(in srgb, var(--ink) 45%, transparent); padding: 16px; }
+.modal .dlg { background: var(--surface); color: var(--ink); border-radius: 14px; padding: 18px; max-width: 420px; width: 100%; display: grid; gap: 14px; border: 1px solid var(--line); }
+.modal .dlg p { margin: 0; }
+.modal .dlg .actions { justify-content: flex-end; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 40; background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px; font-weight: 700; max-width: calc(100% - 32px); box-shadow: 0 4px 16px rgba(0,0,0,.2); }
+.flash { animation: flash 1.4s ease-out; }
+@keyframes flash { 0% { box-shadow: 0 0 0 4px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .flash { animation: none; } }
+footer { font-size: 12px; color: var(--muted); }
+</style>
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;-webkit-text-size-adjust:100%}img{max-width:100%}</style>
+</head>
+<body>
+
+
+<header class="top">
+  <div class="wrap">
+    <h1>生産時間・残量計算<small>包装課｜時間計算.xlsx Web版</small></h1>
+    <div class="legend">
+      <span class="chip"><i class="in"></i>入力欄</span>
+      <span class="chip"><i class="out"></i>計算結果</span>
+      <span class="store">入力内容は<b>この端末・このブラウザに保存</b>（他の人とは共有されません）</span>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs" aria-label="画面切り替え">
+  <div class="wrap" role="tablist">
+    <button class="tab" role="tab" id="t-schedule" data-tab="schedule" aria-selected="true"><span class="n">①</span>生産予定時間</button>
+    <button class="tab" role="tab" id="t-forecast" data-tab="forecast" aria-selected="false"><span class="n">②</span>終了時刻予測</button>
+    <button class="tab" role="tab" id="t-mass" data-tab="mass" aria-selected="false"><span class="n">③</span>受入質量・残量</button>
+  </div>
+</nav>
+
+<main class="wrap">
+  <!-- ① 生産予定時間 -->
+  <section class="panel" id="p-schedule" role="tabpanel" aria-labelledby="t-schedule">
+    <div class="phead">
+      <h2>生産予定時間<span class="src">Excel「生産時間把握表」B3:I10</span></h2>
+      <div class="actions">
+        <label class="toggle"><input type="checkbox" class="sec-toggle" id="sec-1">秒まで表示</label>
+        <button class="btn smp" data-sample="schedule">サンプル入力</button>
+        <button class="btn danger" data-reset="schedule">リセット</button>
+      </div>
+    </div>
+    <div class="sample-flag" data-flag="schedule" hidden>サンプル値を表示中です（実データではありません）。実データを入れるときはリセットしてください。</div>
+
+    <div class="box">
+      <h3>共通の入力</h3>
+      <div class="fields">
+        <label class="field" for="sc-date"><span class="lbl">対象日</span>
+          <span class="ctl" data-ctl="schedule.date"><input type="date" id="sc-date" data-tab="schedule" data-key="date"></span>
+          <span class="err" data-err="schedule.date"></span></label>
+        <label class="field" for="sc-startTime"><span class="lbl">最初の開始時刻</span>
+          <span class="ctl" data-ctl="schedule.startTime"><input type="time" id="sc-startTime" data-tab="schedule" data-key="startTime" step="60"></span>
+          <span class="err" data-err="schedule.startTime"></span></label>
+        <label class="field" for="sc-shot"><span class="lbl">ショット数</span>
+          <span class="ctl" data-ctl="schedule.shot"><input id="sc-shot" data-tab="schedule" data-key="shot" inputmode="decimal" autocomplete="off" placeholder="必須"><span class="unit">本／分</span></span>
+          <span class="err" data-err="schedule.shot"></span><span class="hint">全行共通。数量 ÷ この値 ＝ 作業時間</span></label>
+        <label class="field" for="sc-changeover"><span class="lbl">切り替え時間</span>
+          <span class="ctl" data-ctl="schedule.changeover"><input id="sc-changeover" data-tab="schedule" data-key="changeover" inputmode="decimal" autocomplete="off" placeholder="0"><span class="unit">分</span></span>
+          <span class="err" data-err="schedule.changeover"></span><span class="hint">生産する行と行の間だけ加算</span></label>
+      </div>
+    </div>
+
+    <div class="results" id="sc-summary"></div>
+
+    <div class="box">
+      <div class="shead"><h3 style="margin:0">生産の順番</h3><button class="btn sm" id="sc-add">＋ 行を追加</button></div>
+      <p class="hint" style="margin:4px 0 10px">数量が空欄または0の行は計算対象外です（切り替え時間も加算しません）。</p>
+      <div class="srows" id="sc-rows"></div>
+    </div>
+  </section>
+
+  <!-- ② 終了時刻予測 -->
+  <section class="panel" id="p-forecast" role="tabpanel" aria-labelledby="t-forecast" hidden>
+    <div class="phead">
+      <h2>終了時刻予測<span class="src">Excel D13:H15（NOW() → 計算基準日時）</span></h2>
+      <div class="actions">
+        <label class="toggle"><input type="checkbox" class="sec-toggle" id="sec-2">秒まで表示</label>
+        <button class="btn smp" data-sample="forecast">サンプル入力</button>
+        <button class="btn danger" data-reset="forecast">リセット</button>
+      </div>
+    </div>
+    <div class="sample-flag" data-flag="forecast" hidden>サンプル値を表示中です（実データではありません）。実データを入れるときはリセットしてください。</div>
+    <div class="box">
+      <h3>入力</h3>
+      <div class="fields">
+        <label class="field" for="fc-plan"><span class="lbl">製造予定数量</span>
+          <span class="ctl" data-ctl="forecast.plan"><input id="fc-plan" data-tab="forecast" data-key="plan" inputmode="numeric" autocomplete="off" placeholder="必須"><span class="unit">本</span></span>
+          <span class="err" data-err="forecast.plan"></span></label>
+        <label class="field" for="fc-counter"><span class="lbl">現在のカウンター本数</span>
+          <span class="ctl" data-ctl="forecast.counter"><input id="fc-counter" data-tab="forecast" data-key="counter" inputmode="numeric" autocomplete="off" placeholder="必須（0も可）"><span class="unit">本</span></span>
+          <span class="err" data-err="forecast.counter"></span></label>
+        <label class="field" for="fc-shot"><span class="lbl">ショット数</span>
+          <span class="ctl" data-ctl="forecast.shot"><input id="fc-shot" data-tab="forecast" data-key="shot" inputmode="decimal" autocomplete="off" placeholder="必須"><span class="unit">本／分</span></span>
+          <span class="err" data-err="forecast.shot"></span></label>
+        <label class="field" for="fc-brk"><span class="lbl">これから取る休憩時間</span>
+          <span class="ctl" data-ctl="forecast.brk"><input id="fc-brk" data-tab="forecast" data-key="brk" inputmode="decimal" autocomplete="off" placeholder="0"><span class="unit">分</span></span>
+          <span class="err" data-err="forecast.brk"></span></label>
+      </div>
+    </div>
+    <div class="results" id="fc-results"></div>
+    <div class="actions"><button class="btn primary" id="fc-now">現在時刻で再計算</button><span class="hint">終了予定は自動で動きません。カウンター本数を入れ直すか、このボタンを押した時点で更新します。</span></div>
+  </section>
+
+  <!-- ③ 受入質量・残量計算 -->
+  <section class="panel" id="p-mass" role="tabpanel" aria-labelledby="t-mass" hidden>
+    <div class="phead">
+      <h2>受入質量・残量計算<span class="src">Excel「クラシエ受け入れ質量計算」B18:J19</span></h2>
+      <div class="actions">
+        <button class="btn smp" data-sample="mass">サンプル入力</button>
+        <button class="btn danger" data-reset="mass">リセット</button>
+      </div>
+    </div>
+    <div class="sample-flag" data-flag="mass" hidden>サンプル値を表示中です（実データではありません）。実データを入れるときはリセットしてください。</div>
+    <div class="box">
+      <h3>受入</h3>
+      <div class="fields">
+        <label class="field" for="ms-perBarrel"><span class="lbl">1タルあたりの質量</span>
+          <span class="ctl" data-ctl="mass.perBarrel"><input id="ms-perBarrel" data-tab="mass" data-key="perBarrel" inputmode="decimal" autocomplete="off" placeholder="必須"><span class="unit">kg</span></span>
+          <span class="err" data-err="mass.perBarrel"></span></label>
+        <label class="field" for="ms-barrels"><span class="lbl">タル数</span>
+          <span class="ctl" data-ctl="mass.barrels"><input id="ms-barrels" data-tab="mass" data-key="barrels" inputmode="numeric" autocomplete="off" placeholder="必須"><span class="unit">タル</span></span>
+          <span class="err" data-err="mass.barrels"></span></label>
+        <label class="field" for="ms-fraction"><span class="lbl">端数の質量</span>
+          <span class="ctl" data-ctl="mass.fraction"><input id="ms-fraction" data-tab="mass" data-key="fraction" inputmode="decimal" autocomplete="off" placeholder="必須（なければ0）"><span class="unit">kg</span></span>
+          <span class="err" data-err="mass.fraction"></span></label>
+      </div>
+      <h3 style="margin-top:16px">製品・前日生産</h3>
+      <div class="fields">
+        <label class="field" for="ms-perBottle"><span class="lbl">1本あたりの錠数</span>
+          <span class="ctl" data-ctl="mass.perBottle"><input id="ms-perBottle" data-tab="mass" data-key="perBottle" inputmode="numeric" autocomplete="off" placeholder="必須"><span class="unit">錠／本</span></span>
+          <span class="err" data-err="mass.perBottle"></span></label>
+        <label class="field" for="ms-tabMass"><span class="lbl">1錠あたりの質量</span>
+          <span class="ctl" data-ctl="mass.tabMass"><input id="ms-tabMass" data-tab="mass" data-key="tabMass" inputmode="decimal" autocomplete="off" placeholder="必須"><span class="unit">g／錠</span></span>
+          <span class="err" data-err="mass.tabMass"></span></label>
+        <label class="field" for="ms-prevBottles"><span class="lbl">前日生産本数</span>
+          <span class="ctl" data-ctl="mass.prevBottles"><input id="ms-prevBottles" data-tab="mass" data-key="prevBottles" inputmode="numeric" autocomplete="off" placeholder="必須"><span class="unit">本</span></span>
+          <span class="err" data-err="mass.prevBottles"></span></label>
+      </div>
+    </div>
+    <div class="results" id="ms-results"></div>
+  </section>
+
+  <details class="notes">
+    <summary>Excelからの変更点・計算ルール</summary>
+    <ul>
+      <li>作業時間［分］＝ 数量 ÷ ショット数／分（Excelの ÷1440 は日単位への変換なので、Web版では使いません）。</li>
+      <li>数量が空欄・0の行は計算対象外。切り替え時間は生産する行と行の間だけ加算し、最後の生産の後には加算しません。</li>
+      <li>計算途中は丸めず、表示のときだけ整えます。日をまたぐと「翌日」、所要時間は24時間を超えても「26時間15分」のように表示します。</li>
+      <li>終了時刻予測の基準はExcelのNOW()の代わりに「入力を変えた時点」または「現在時刻で再計算」を押した時点です。</li>
+      <li>残り錠数は質量から換算した理論値です。歩留まり・ロス・検体分は差し引いていません。</li>
+      <li>入力内容はこの端末のブラウザ内だけに保存し、外部へは送信しません。</li>
+    </ul>
+  </details>
+  <footer>計算式の出典：時間計算.xlsx Sheet1（E4:H10, F14:H14, I19:J19）</footer>
+</main>
+
+<div class="modal" id="modal" hidden role="dialog" aria-modal="true" aria-labelledby="modal-msg">
+  <div class="dlg">
+    <p id="modal-msg"></p>
+    <div class="actions"><button class="btn" id="modal-cancel">やめる</button><button class="btn primary" id="modal-ok">実行する</button></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
+
+<script>
+/* =====================================================================
+ * 計算ロジック（画面処理から分離）
+ * 元Excel「時間計算.xlsx」Sheet1 の数式を再現。
+ * 時刻は JST(UTC+9) の epoch ミリ秒で保持し、途中で丸めない。
+ * ===================================================================== */
+(function (root) {
+  'use strict';
+
+  var MIN = 60000;               // 1分 [ms]
+  var DAY = 86400000;            // 1日 [ms]
+  var JST = 9 * 3600000;         // 日本時間オフセット [ms]
+
+  /* ---------- 入力値の解釈 ---------- */
+
+  // 全角数字・記号を半角へ、桁区切りカンマを除去
+  function normalize(raw) {
+    if (raw === null || raw === undefined) return '';
+    return String(raw)
+      .replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+      .replace(/[．。]/g, '.')
+      .replace(/[－ー−]/g, '-')
+      .replace(/[，,]/g, '')
+      .replace(/[\s　]+/g, '');
+  }
+
+  /**
+   * 数値欄を解釈する。空欄と明示的な0を区別する。
+   * rule.kind  : 'int'（整数） | 'dec'（小数可）
+   * rule.gt0   : true なら 0 より大きい値のみ
+   * rule.min   : 下限（含む）。既定 0
+   * rule.empty : 空欄時に使う値（休憩・切り替え時間は 0）。未指定なら 'empty' 状態
+   * 戻り値 { state:'empty'|'ok'|'error', value?, msg? }
+   */
+  function parseField(raw, rule) {
+    rule = rule || {};
+    var s = normalize(raw);
+    if (s === '') {
+      if (rule.empty !== undefined) return { state: 'ok', value: rule.empty, defaulted: true };
+      return { state: 'empty' };
+    }
+    var re = rule.kind === 'int' ? /^-?\d+$/ : /^-?(\d+(\.\d*)?|\.\d+)$/;
+    if (!re.test(s)) {
+      return { state: 'error', msg: rule.kind === 'int' ? '整数で入力してください' : '数値で入力してください' };
+    }
+    var v = Number(s);
+    if (!isFinite(v)) return { state: 'error', msg: '数値で入力してください' };
+    if (v < 0) return { state: 'error', msg: 'マイナスは入力できません' };
+    if (rule.gt0 && !(v > 0)) return { state: 'error', msg: '0より大きい数値を入力してください' };
+    var min = rule.min === undefined ? 0 : rule.min;
+    if (v < min) return { state: 'error', msg: min + '以上で入力してください' };
+    return { state: 'ok', value: v };
+  }
+
+  var RULES = {
+    shot:     { kind: 'dec', gt0: true },          // ショット数／分
+    qty:      { kind: 'int', min: 0 },             // 数量・本数
+    minutes:  { kind: 'dec', min: 0, empty: 0 },   // 休憩・切り替え（空欄=0分）
+    kg:       { kind: 'dec', min: 0 },             // 質量 kg
+    count:    { kind: 'int', min: 0 },             // タル数
+    perBottle:{ kind: 'int', min: 1 },             // 1本あたり錠数（1以上）
+    tabMass:  { kind: 'dec', gt0: true }           // 1錠あたり質量 g（0より大）
+  };
+
+  // 'YYYY-MM-DD' → 当日0:00(JST) の epoch ms。不正なら null
+  function parseDate(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''));
+    if (!m) return null;
+    var y = +m[1], mo = +m[2], d = +m[3];
+    var t = Date.UTC(y, mo - 1, d);
+    var chk = new Date(t);
+    if (chk.getUTCFullYear() !== y || chk.getUTCMonth() !== mo - 1 || chk.getUTCDate() !== d) return null;
+    return t - JST;
+  }
+
+  // 'HH:MM' → 0:00 からの分。不正なら null
+  function parseTime(s) {
+    var m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(normalize(s).replace('：', ':'));
+    if (!m) return null;
+    var h = +m[1], mi = +m[2], se = m[3] ? +m[3] : 0;
+    if (h > 23 || mi > 59 || se > 59) return null;
+    return h * 60 + mi + se / 60;
+  }
+
+  /* ---------- ① 生産予定時間 ---------- */
+
+  /**
+   * 元セル（Sheet1）:
+   *   E4 = D4/$B$3/1440        作業時間（Excel日単位）
+   *   H4 = G4+E4+I4            終了 = 開始 + 作業時間 + 休憩
+   *   G5 = H4+$B$4             次行開始 = 前行終了 + 切り替え時間
+   *   E5 = D5/$B$3/1440, H5 = G5+E5+I5 … 以降同様
+   * Web版:
+   *   作業時間[分] = 製造予定数量 ÷ ショット数/分     （÷1440 は日単位変換なので不要）
+   *   1行目開始 = 対象日 + 開始時刻
+   *   2行目以降の開始 = 直前の「有効な行」の終了 + 切り替え時間
+   *   終了 = 開始 + 作業時間 + その行の休憩
+   *   改善: 数量が空欄/0の行は対象外。切り替えは有効行の間だけ。最後の後には加算しない。
+   */
+  function calcSchedule(inp) {
+    var f = {
+      date: inp.date ? (parseDate(inp.date) === null ? { state: 'error', msg: '日付が正しくありません' } : { state: 'ok', value: parseDate(inp.date) }) : { state: 'empty' },
+      startTime: inp.startTime ? (parseTime(inp.startTime) === null ? { state: 'error', msg: '時刻が正しくありません' } : { state: 'ok', value: parseTime(inp.startTime) }) : { state: 'empty' },
+      shot: parseField(inp.shot, RULES.shot),
+      changeover: parseField(inp.changeover, RULES.minutes)
+    };
+    var commonOk = f.date.state === 'ok' && f.startTime.state === 'ok' && f.shot.state === 'ok' && f.changeover.state === 'ok';
+    var commonErr = ['date', 'startTime', 'shot', 'changeover'].some(function (k) { return f[k].state === 'error'; });
+
+    var shot = commonOk ? f.shot.value : null;
+    var co = commonOk ? f.changeover.value : null;
+    var cursor = commonOk ? f.date.value + f.startTime.value * MIN : null; // 次の開始候補 [ms]
+    var prevEnd = null;
+    var blocked = false;
+    var tot = { qty: 0, workMin: 0, brkMin: 0, changeMin: 0, count: 0, endMs: null };
+
+    var rows = (inp.rows || []).map(function (r) {
+      var q = parseField(r.qty, RULES.qty);
+      var b = parseField(r.brk, RULES.minutes);
+      var out = { qty: q, brk: b };
+      if (q.state === 'error' || b.state === 'error') { out.state = 'error'; blocked = true; return out; }
+      if (q.state === 'empty' || q.value === 0) { out.state = 'skip'; return out; } // 計算対象外
+      tot.qty += q.value; tot.count += 1; tot.brkMin += b.value;
+      if (!commonOk) { out.state = commonErr ? 'blocked' : 'pending'; return out; }
+      if (blocked) { out.state = 'blocked'; return out; }
+      var work = q.value / shot;                         // E列: D/$B$3（分）
+      var start = prevEnd === null ? cursor : prevEnd + co * MIN; // G列: H(前)+$B$4
+      if (prevEnd !== null) tot.changeMin += co;
+      var end = start + (work + b.value) * MIN;          // H列: G+E+I
+      prevEnd = end;
+      tot.workMin += work;
+      out.state = 'ok'; out.workMin = work; out.brkMin = b.value; out.startMs = start; out.endMs = end;
+      return out;
+    });
+
+    var hasRowErr = rows.some(function (r) { return r.state === 'error'; });
+    var status;
+    if (commonErr || hasRowErr) status = 'error';
+    else if (!commonOk) status = 'incomplete';
+    else if (tot.count === 0) status = 'norows';
+    else status = 'ok';
+    if (status === 'ok') tot.endMs = prevEnd;
+    if (!commonOk || hasRowErr) { tot.workMin = commonOk ? tot.workMin : null; }
+    if (!commonOk) tot.changeMin = null;
+
+    return { status: status, fields: f, rows: rows, totals: tot, baseDayMs: f.date.state === 'ok' ? f.date.value : null };
+  }
+
+  /* ---------- ② 終了時刻予測 ---------- */
+
+  /**
+   * 元セル:
+   *   F14 = IF(D14="","",D14-E14)            残本数
+   *   G14 = F14/$G$13/1440                   残り作業時間（Excel日単位）
+   *   H14 = IF(D14="","",NOW()+G14+G15)      終了予定 = 現在 + 残作業 + 休憩
+   * Web版: NOW() は「計算基準日時 baseMs」（入力変更時 or ボタン押下時）に置き換える。
+   */
+  function calcForecast(inp) {
+    var f = {
+      plan: parseField(inp.plan, RULES.qty),
+      counter: parseField(inp.counter, RULES.qty),
+      shot: parseField(inp.shot, RULES.shot),
+      brk: parseField(inp.brk, RULES.minutes)
+    };
+    var keys = ['plan', 'counter', 'shot', 'brk'];
+    if (keys.some(function (k) { return f[k].state === 'error'; })) return { status: 'error', fields: f };
+    if (keys.some(function (k) { return f[k].state === 'empty'; })) return { status: 'incomplete', fields: f };
+
+    var remaining = f.plan.value - f.counter.value;               // F14
+    if (remaining < 0) return { status: 'over', fields: f, remaining: remaining, over: -remaining };
+    if (remaining === 0) return { status: 'done', fields: f, remaining: 0, workMin: 0, totalMin: 0 };
+
+    var workMin = remaining / f.shot.value;                       // G14 ×1440
+    var totalMin = workMin + f.brk.value;                         // G14+G15
+    var base = typeof inp.baseMs === 'number' && isFinite(inp.baseMs) ? inp.baseMs : null;
+    return {
+      status: 'ok', fields: f, remaining: remaining, workMin: workMin, totalMin: totalMin,
+      baseMs: base, endMs: base === null ? null : base + totalMin * MIN   // H14
+    };
+  }
+
+  /* ---------- ③ 受入質量・残量計算 ---------- */
+
+  /**
+   * 元セル（クラシエ受け入れ質量計算）:
+   *   I19 = (B19*C19+D19)-(E19*F19/1000*G19)   残りKg数
+   *   J19 = I19/(F19/1000)                     残り錠数
+   */
+  function calcMass(inp) {
+    var f = {
+      perBarrel: parseField(inp.perBarrel, RULES.kg),       // B19
+      barrels: parseField(inp.barrels, RULES.count),        // C19
+      fraction: parseField(inp.fraction, RULES.kg),         // D19
+      perBottle: parseField(inp.perBottle, RULES.perBottle),// E19
+      tabMass: parseField(inp.tabMass, RULES.tabMass),      // F19
+      prevBottles: parseField(inp.prevBottles, RULES.qty)   // G19
+    };
+    var keys = Object.keys(f);
+    var out = { fields: f };
+    if (keys.some(function (k) { return f[k].state === 'error'; })) { out.status = 'error'; }
+    else if (keys.some(function (k) { return f[k].state === 'empty'; })) { out.status = 'incomplete'; }
+    else out.status = 'ok';
+
+    var v = function (k) { return f[k].state === 'ok' ? f[k].value : null; };
+    if (v('perBarrel') !== null && v('barrels') !== null && v('fraction') !== null)
+      out.receivedKg = v('perBarrel') * v('barrels') + v('fraction');                 // B19*C19+D19
+    if (v('perBottle') !== null && v('tabMass') !== null && v('prevBottles') !== null)
+      out.usedKg = v('perBottle') * v('tabMass') / 1000 * v('prevBottles');           // E19*F19/1000*G19
+    if (out.status === 'ok') {
+      out.remainKg = out.receivedKg - out.usedKg;                                     // I19
+      out.remainTabs = out.remainKg / (v('tabMass') / 1000);                          // J19
+      out.negative = out.remainKg < 0;
+    }
+    return out;
+  }
+
+  /* ---------- 製品別参考設定: ショット数表記の解釈 ---------- */
+  // '34' → 単一値, '15~18' '26～27' → 範囲（平均は採用しない）
+  function parseShotText(t) {
+    var s = normalize(t).replace(/[〜～~]/g, '~');
+    if (s === '') return { type: 'none' };
+    if (/^\d+(\.\d+)?$/.test(s)) { var n = Number(s); return n > 0 ? { type: 'single', value: n } : { type: 'invalid' }; }
+    var m = /^(\d+(?:\.\d+)?)~(\d+(?:\.\d+)?)$/.exec(s);
+    if (m) return { type: 'range', min: Number(m[1]), max: Number(m[2]) };
+    return { type: 'invalid' };
+  }
+
+  /* ---------- 表示用の整形（計算値は丸めず、ここでだけ整える） ---------- */
+
+  function fin(x) { return typeof x === 'number' && isFinite(x); }
+
+  // 分 → 「26時間15分」（24hで折り返さない）。withSec で秒まで
+  function fmtDuration(min, withSec) {
+    if (!fin(min)) return '—';
+    var neg = min < 0; var sec = Math.round(Math.abs(min) * 60);
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    var str;
+    if (withSec) str = (h ? h + '時間' : '') + (h || m ? m + '分' + pad(s) : s) + '秒';
+    else str = h ? h + '時間' + m + '分' : m + '分';
+    return (neg ? '−' : '') + str;
+  }
+
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+  // epoch ms → JST の部品（秒は四捨五入してから桁を決める）
+  function jstParts(ms) {
+    var t = Math.round(ms / 1000) * 1000 + JST;
+    var d = new Date(t);
+    return { y: d.getUTCFullYear(), mo: d.getUTCMonth() + 1, d: d.getUTCDate(), h: d.getUTCHours(), mi: d.getUTCMinutes(), s: d.getUTCSeconds(), wd: d.getUTCDay(), dayIdx: Math.floor(t / DAY) };
+  }
+
+  // 時刻表示。baseDayMs（対象日0:00）からの日数差で「翌日」等を付ける
+  function fmtClock(ms, baseDayMs, withSec) {
+    if (!fin(ms)) return '—';
+    var p = jstParts(ms);
+    var hm = pad(p.h) + ':' + pad(p.mi) + (withSec ? ':' + pad(p.s) : '');
+    if (!fin(baseDayMs)) return hm;
+    var diff = p.dayIdx - Math.floor((baseDayMs + JST) / DAY);
+    if (diff === 0) return hm;
+    if (diff === 1) return '翌日 ' + hm;
+    if (diff === -1) return '前日 ' + hm;
+    return p.mo + '/' + p.d + '（' + diff + '日後） ' + hm;
+  }
+
+  var WD = ['日', '月', '火', '水', '木', '金', '土'];
+  function fmtDateTime(ms, withSec) {
+    if (!fin(ms)) return '—';
+    var p = jstParts(ms);
+    return p.y + '/' + pad(p.mo) + '/' + pad(p.d) + '（' + WD[p.wd] + '） ' + pad(p.h) + ':' + pad(p.mi) + (withSec ? ':' + pad(p.s) : '');
+  }
+
+  function fmtNum(x, digits) {
+    if (!fin(x)) return '—';
+    digits = digits || 0;
+    var r = Number(x.toFixed(digits));
+    if (r === 0) r = 0; // -0 を避ける
+    return r.toLocaleString('ja-JP', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  }
+
+  function todayJST(nowMs) {
+    var p = jstParts(nowMs === undefined ? Date.now() : nowMs);
+    return p.y + '-' + pad(p.mo) + '-' + pad(p.d);
+  }
+
+  var Calc = {
+    MIN: MIN, DAY: DAY, JST: JST, RULES: RULES,
+    normalize: normalize, parseField: parseField, parseDate: parseDate, parseTime: parseTime,
+    calcSchedule: calcSchedule, calcForecast: calcForecast, calcMass: calcMass, parseShotText: parseShotText,
+    fmtDuration: fmtDuration, fmtClock: fmtClock, fmtDateTime: fmtDateTime, fmtNum: fmtNum, todayJST: todayJST, jstParts: jstParts
+  };
+  root.Calc = Calc;
+  if (typeof module !== 'undefined' && module.exports) module.exports = Calc;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+(function () {
+  'use strict';
+  var C = window.Calc;
+  var KEY = 'seisan-keisan-v1';
+
+  /* ---------- 初期データ ---------- */
+  function blankRows(n) { var r = []; for (var i = 0; i < n; i++) r.push({ qty: '', brk: '' }); return r; }
+  var BLANK = {
+    schedule: function () { return { date: C.todayJST(), shot: '', changeover: '', startTime: '', rows: blankRows(7) }; },
+    forecast: function () { return { plan: '', counter: '', shot: '', brk: '', baseMs: null, restored: false }; },
+    mass: function () { return { perBarrel: '', barrels: '', fraction: '', perBottle: '', tabMass: '', prevBottles: '' }; }
+  };
+  var SAMPLE = {
+    schedule: function () {
+      var r = blankRows(7);
+      r[0] = { qty: '3018', brk: '0' }; r[1] = { qty: '6625', brk: '15' }; r[2] = { qty: '1000', brk: '0' };
+      return { date: C.todayJST(), shot: '41', changeover: '20', startTime: '12:00', rows: r };
+    },
+    forecast: function () { return { plan: '7932', counter: '3200', shot: '37', brk: '15', baseMs: Date.now(), restored: false }; },
+    mass: function () { return { perBarrel: '100', barrels: '3', fraction: '78.35', perBottle: '120', tabMass: '0.4', prevBottles: '5203' }; }
+  };
+
+  /* ---------- 状態と保存（この端末のlocalStorageのみ） ---------- */
+  var state = null;
+  function fresh() {
+    return { v: 1, tab: 'schedule', showSec: false, sample: { schedule: true, forecast: true, mass: true },
+      schedule: SAMPLE.schedule(), forecast: SAMPLE.forecast(), mass: SAMPLE.mass() };
+  }
+  function load() {
+    var s = null;
+    try { var raw = localStorage.getItem(KEY); if (raw) s = JSON.parse(raw); } catch (e) { s = null; }
+    if (!s || s.v !== 1) return fresh();
+    var out = {
+      v: 1, tab: ['schedule', 'forecast', 'mass'].indexOf(s.tab) >= 0 ? s.tab : 'schedule', showSec: !!s.showSec,
+      sample: Object.assign({ schedule: false, forecast: false, mass: false }, s.sample || {}),
+      schedule: Object.assign(BLANK.schedule(), s.schedule || {}),
+      forecast: Object.assign(BLANK.forecast(), s.forecast || {}),
+      mass: Object.assign(BLANK.mass(), s.mass || {})
+    };
+    if (!Array.isArray(out.schedule.rows) || !out.schedule.rows.length) out.schedule.rows = blankRows(7);
+    if (typeof out.forecast.baseMs === 'number') out.forecast.restored = true; // 保存データから復元 = 前回計算
+    return out;
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* 保存できない環境でも動作は継続 */ } }
+
+  /* ---------- 小物 ---------- */
+  function $(s, r) { return (r || document).querySelector(s); }
+  function $all(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+  function esc(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function res(k, v, unit, d, cls) { return '<div class="res ' + (cls || '') + '"><span class="k">' + k + '</span><span class="v">' + v + (unit && v !== '—' ? '<small>' + unit + '</small>' : '') + '</span>' + (d ? '<span class="d">' + d + '</span>' : '') + '</div>'; }
+  function status(cls, title, sub) { return '<div class="status ' + cls + '">' + title + (sub ? '<small>' + sub + '</small>' : '') + '</div>'; }
+  function setFieldError(path, r) {
+    var ctl = $('[data-ctl="' + path + '"]'), err = $('[data-err="' + path + '"]');
+    var bad = r && r.state === 'error';
+    if (ctl) ctl.classList.toggle('bad', bad);
+    if (err) err.textContent = bad ? r.msg : '';
+  }
+  var toastTimer;
+  function toast(msg) { var t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 3600); }
+  var modalOk = null;
+  function confirmBox(msg, okLabel, fn) { $('#modal-msg').textContent = msg; $('#modal-ok').textContent = okLabel || '実行する'; modalOk = fn; $('#modal').hidden = false; $('#modal-cancel').focus(); }
+  function closeModal() { $('#modal').hidden = true; modalOk = null; }
+  function flash(el) { if (!el) return; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+  var sec = function () { return state.showSec; };
+
+  /* ---------- ① 生産予定時間 ---------- */
+  function renderRows() {
+    var html = state.schedule.rows.map(function (r, i) {
+      return '<div class="srow" data-row="' + i + '">' +
+        '<div class="sno">' + (i + 1) + '</div>' +
+        '<label class="field f-qty" for="sr-qty-' + i + '"><span class="lbl">製造予定数量</span><span class="ctl" data-ctl="row' + i + '.qty"><input id="sr-qty-' + i + '" data-row="' + i + '" data-key="qty" inputmode="numeric" autocomplete="off" value="' + esc(r.qty) + '"><span class="unit">本</span></span><span class="err" data-err="row' + i + '.qty"></span></label>' +
+        '<label class="field f-brk" for="sr-brk-' + i + '"><span class="lbl">休憩</span><span class="ctl" data-ctl="row' + i + '.brk"><input id="sr-brk-' + i + '" data-row="' + i + '" data-key="brk" inputmode="decimal" autocomplete="off" placeholder="0" value="' + esc(r.brk) + '"><span class="unit">分</span></span><span class="err" data-err="row' + i + '.brk"></span></label>' +
+        '<div class="souts" id="so-' + i + '"></div>' +
+        '<button class="delrow" data-del="' + i + '" aria-label="' + (i + 1) + '行目を削除" title="この行を削除">×</button>' +
+        '</div>';
+    }).join('');
+    $('#sc-rows').innerHTML = html;
+  }
+
+  function updateSchedule() {
+    var r = C.calcSchedule(state.schedule);
+    ['date', 'startTime', 'shot', 'changeover'].forEach(function (k) { setFieldError('schedule.' + k, r.fields[k]); });
+    var base = r.baseDayMs, s = sec();
+    r.rows.forEach(function (row, i) {
+      setFieldError('row' + i + '.qty', row.qty); setFieldError('row' + i + '.brk', row.brk);
+      var el = $('#so-' + i); if (!el) return;
+      var rowEl = el.parentNode; rowEl.classList.toggle('skip', row.state === 'skip');
+      var h;
+      if (row.state === 'ok') {
+        h = res('作業時間', C.fmtDuration(row.workMin, s), '', s ? C.fmtNum(row.workMin, 6) + ' 分' + (row.brkMin ? '／休憩 ' + C.fmtNum(row.brkMin, 0) + '分 別' : '') : (row.brkMin ? '休憩 ' + C.fmtNum(row.brkMin, 0) + '分 別' : '')) +
+            res('開始時刻', C.fmtClock(row.startMs, base, s)) +
+            res('終了時刻', C.fmtClock(row.endMs, base, s));
+      } else if (row.state === 'skip') h = '<div class="note">計算対象外（数量が空欄または0）</div>';
+      else if (row.state === 'pending') h = '<div class="note">未入力：共通の入力（開始時刻・ショット数など）を入れてください</div>';
+      else if (row.state === 'blocked') h = '<div class="note e">上の入力エラーを直すと計算します</div>';
+      else h = '<div class="note e">入力エラー：この行の値を確認してください</div>';
+      el.innerHTML = h;
+    });
+
+    var t = r.totals, out = '';
+    if (r.status === 'ok') {
+      var endTxt = C.fmtClock(t.endMs, base, s);
+      out += res('最終終了予定', endTxt, '', C.fmtDateTime(t.endMs, s) + '　（有効 ' + t.count + ' 行）', 'hero');
+    } else if (r.status === 'incomplete') out += status('idle', '未入力', '対象日・最初の開始時刻・ショット数を入れると計算します。');
+    else if (r.status === 'norows') out += status('idle', '未入力', '製造予定数量を1行以上入れてください。');
+    else out += status('err', '入力エラーがあります', '赤くなっている欄を確認してください。');
+    out += res('合計製造予定数量', C.fmtNum(t.qty, 0), '本');
+    out += res('合計作業時間', r.status === 'ok' ? C.fmtDuration(t.workMin, s) : '—', '', r.status === 'ok' && s ? C.fmtNum(t.workMin, 6) + ' 分' : '');
+    out += res('合計休憩時間', C.fmtDuration(t.brkMin, s));
+    out += res('合計切り替え時間', r.status === 'ok' ? C.fmtDuration(t.changeMin, s) : '—', '', r.status === 'ok' ? '切り替え ' + Math.max(0, t.count - 1) + ' 回' : '');
+    $('#sc-summary').innerHTML = out;
+  }
+
+  /* ---------- ② 終了時刻予測 ---------- */
+  function updateForecast() {
+    var st = state.forecast, r = C.calcForecast(st), s = sec();
+    ['plan', 'counter', 'shot', 'brk'].forEach(function (k) { setFieldError('forecast.' + k, r.fields[k]); });
+    var baseTxt = typeof st.baseMs === 'number' ? C.fmtDateTime(st.baseMs, true) : '—';
+    var baseTag = typeof st.baseMs === 'number' ? (st.restored ? '<span class="tag">前回計算（保存データ）</span>' : '<span class="tag now">今回の計算</span>') : '';
+    var out = '';
+    if (r.status === 'incomplete') out = status('idle', '未入力', '製造予定数量・現在のカウンター本数・ショット数を入れると計算します。');
+    else if (r.status === 'error') out = status('err', '入力エラーがあります', '赤くなっている欄を確認してください。');
+    else if (r.status === 'over') out = status('err', '予定数量を ' + C.fmtNum(r.over, 0) + ' 本 超過しています', 'カウンター本数または製造予定数量を確認してください。終了予測は表示しません。') + res('残本数', C.fmtNum(r.remaining, 0), '本');
+    else if (r.status === 'done') out = status('ok', '生産完了', 'カウンター本数が製造予定数量に達しました。これからの休憩は加算しません。') + res('残本数', '0', '本') + res('残り作業時間', C.fmtDuration(0, s));
+    else {
+      out = res('終了予定日時', C.fmtClock(r.endMs, st.baseMs, s), '', C.fmtDateTime(r.endMs, s), 'hero') +
+        res('残本数', C.fmtNum(r.remaining, 0), '本') +
+        res('残り作業時間', C.fmtDuration(r.workMin, s), '', s ? C.fmtNum(r.workMin, 6) + ' 分' : '') +
+        res('休憩込みの残り所要時間', C.fmtDuration(r.totalMin, s), '', s ? C.fmtNum(r.totalMin, 6) + ' 分' : '休憩 ' + C.fmtNum(r.fields.brk.value, 0) + '分 込み');
+    }
+    out += '<div class="res"><span class="k">計算基準日時' + baseTag + '</span><span class="v" style="font-size:16px">' + baseTxt + '</span></div>';
+    $('#fc-results').innerHTML = out;
+  }
+
+  /* ---------- ③ 受入質量・残量 ---------- */
+  function updateMass() {
+    var r = C.calcMass(state.mass);
+    Object.keys(r.fields).forEach(function (k) { setFieldError('mass.' + k, r.fields[k]); });
+    var out = '';
+    if (r.status === 'error') out += status('err', '入力エラーがあります', '赤くなっている欄を確認してください。');
+    else if (r.status === 'incomplete') out += status('idle', '未入力', 'すべての欄を入れると残り質量・残り錠数を計算します。');
+    else if (r.negative) out += status('warn', '残り質量がマイナスです', '受入質量・前日生産本数・1錠あたり質量などの入力を確認してください。値はそのまま表示しています。');
+    out += res('受入総質量', C.fmtNum(r.receivedKg, 3), 'kg', '1タル × タル数 ＋ 端数');
+    out += res('前日生産分の使用質量', C.fmtNum(r.usedKg, 3), 'kg', '錠数 × 1錠g ÷ 1000 × 本数');
+    out += res('残り質量', C.fmtNum(r.remainKg, 3), 'kg', 'Excel I19', 'big');
+    out += res('残り錠数', C.fmtNum(r.remainTabs, 0), '錠', '質量からの換算値（理論値）。実測数量ではありません');
+    $('#ms-results').innerHTML = out;
+  }
+
+  /* ---------- 画面全体 ---------- */
+  function touchForecast() { state.forecast.baseMs = Date.now(); state.forecast.restored = false; }
+  function fillInputs(tab) {
+    $all('[data-tab="' + tab + '"][data-key]').forEach(function (el) { if (el.tagName === 'INPUT') el.value = state[tab][el.getAttribute('data-key')] || ''; });
+    if (tab === 'schedule') renderRows();
+  }
+  function updateAll() { updateSchedule(); updateForecast(); updateMass(); }
+  function showFlags() { $all('[data-flag]').forEach(function (el) { el.hidden = !state.sample[el.getAttribute('data-flag')]; }); }
+  function setTab(tab) {
+    state.tab = tab;
+    $all('.tab').forEach(function (b) { b.setAttribute('aria-selected', b.getAttribute('data-tab') === tab ? 'true' : 'false'); });
+    ['schedule', 'forecast', 'mass'].forEach(function (t) { $('#p-' + t).hidden = t !== tab; });
+    save();
+  }
+
+  document.addEventListener('input', function (e) {
+    var el = e.target, tab = el.getAttribute('data-tab'), key = el.getAttribute('data-key'), row = el.getAttribute('data-row');
+    if (row !== null && key) { state.schedule.rows[+row][key] = el.value; updateSchedule(); save(); return; }
+    if (tab && key) {
+      state[tab][key] = el.value;
+      if (tab === 'forecast') { touchForecast(); updateForecast(); }
+      else if (tab === 'schedule') updateSchedule(); else updateMass();
+      save(); return;
+    }
+  });
+  document.addEventListener('change', function (e) {
+    if (e.target.classList.contains('sec-toggle')) { state.showSec = e.target.checked; $all('.sec-toggle').forEach(function (c) { c.checked = state.showSec; }); updateSchedule(); updateForecast(); save(); }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !$('#modal').hidden) closeModal();
+  });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    var a;
+    if ((a = b.getAttribute('data-tab')) && b.classList.contains('tab')) { setTab(a); return; }
+    if ((a = b.getAttribute('data-sample'))) {
+      confirmBox('サンプル値を入れます。この画面の今の入力内容は消えます。よろしいですか？', 'サンプルを入れる', function () {
+        state[a] = SAMPLE[a](); state.sample[a] = true; fillInputs(a); showFlags(); updateAll(); save(); toast('サンプル値を入れました（実データではありません）');
+      }); return;
+    }
+    if ((a = b.getAttribute('data-reset'))) {
+      var nm = { schedule: '生産予定時間', forecast: '終了時刻予測', mass: '受入質量・残量計算' }[a];
+      confirmBox('「' + nm + '」の入力内容をすべて消して空欄に戻します。よろしいですか？', 'リセットする', function () {
+        state[a] = BLANK[a](); state.sample[a] = false; fillInputs(a); showFlags(); updateAll(); save(); toast('リセットしました');
+      }); return;
+    }
+    if (b.id === 'modal-ok') { var fn = modalOk; closeModal(); if (fn) fn(); return; }
+    if (b.id === 'modal-cancel') { closeModal(); return; }
+    if (b.id === 'sc-add') { state.schedule.rows.push({ qty: '', brk: '' }); renderRows(); updateSchedule(); save(); var last = $('#sr-qty-' + (state.schedule.rows.length - 1)); if (last) last.focus(); return; }
+    if ((a = b.getAttribute('data-del')) !== null) {
+      var i = +a, r = state.schedule.rows[i];
+      var doDel = function () { state.schedule.rows.splice(i, 1); if (!state.schedule.rows.length) state.schedule.rows.push({ qty: '', brk: '' }); renderRows(); updateSchedule(); save(); };
+      if (r.qty || r.brk) confirmBox((i + 1) + '行目を削除します。よろしいですか？', '削除する', doDel); else doDel();
+      return;
+    }
+    if (b.id === 'fc-now') { touchForecast(); updateForecast(); save(); toast('現在時刻を基準に再計算しました'); flash($('#fc-results')); return; }
+  });
+  $('#modal').addEventListener('click', function (e) { if (e.target.id === 'modal') closeModal(); });
+
+  /* ---------- 起動 ---------- */
+  state = load();
+  ['schedule', 'forecast', 'mass'].forEach(fillInputs);
+  $all('.sec-toggle').forEach(function (c) { c.checked = state.showSec; });
+  showFlags(); updateAll(); setTab(state.tab); save();
+})();
+</script>
+
+<script>
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+}
+</script>
+</body>
+</html>
